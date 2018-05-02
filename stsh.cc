@@ -22,7 +22,8 @@
 using namespace std;
 
 static STSHJobList joblist; // the one piece of global data we need so signal handlers can access it
-
+static void changeProcessStatus(pid_t pid, STSHJobState stat);
+static void sigchildHandler(int sig);
 /**
  * Function: handleBuiltin
  * -----------------------
@@ -60,22 +61,25 @@ static void installSignalHandlers() {
   installSignalHandler(SIGQUIT, [](int sig) { exit(0); });
   installSignalHandler(SIGTTIN, SIG_IGN);
   installSignalHandler(SIGTTOU, SIG_IGN);
-//  signal(SIGCHLD, reapForegroundProcess);
+  installSignalHandler(SIGCHLD, sigchildHandler);
 }
 
-static void reapForegroundProcess(int sig){
- if(joblist.hasForegroundJob()){
-    STSHJob fjob = joblist.getForegroundJob();
-    std::vector<STSHProcess> &processes = fjob.getProcesses();
-    for(size_t i = 0; i < processes.size(); i++){
-      STSHProcess &process = processes[i];
-      int status;
-      int pid = waitpid(-1, &status, WNOHANG);
-      if(pid < 0) continue;
-      if(WIFEXITED(status)) process.setState(kTerminated);
-      else if(WIFSTOPPED(status)) process.setState(kStopped);
-    }
-    joblist.synchronize(fjob);
+static void changeProcessStatus(pid_t pid, STSHJobState stat){
+  STSHJob &job = joblist.getJobWithProcess(pid);
+  assert(job.containsProcess(pid));
+  STSHProcess& proc = job.getProcess(pid);
+  proc.setState(stat);
+  joblist.synchronize(job);
+}
+
+static void sigchildHandler(int sig){
+  while(true){
+    int status;
+    pid_t pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED);
+    if(pid <= 0) break;
+    if(WIFEXITED(status) | WIFSIGNALED(status)) changeProcessStatus(pid, kTerminated);
+    if(WIFSTOPPED(status)) changeProcessStatus(pid, kStopped);
+    if(WIFCONTINUED(status)) changeProcessStatus(pid, kRunning);   
   }
 }
   
@@ -93,19 +97,20 @@ static void createJob(const pipeline& p) {
 //  /* STSHJob& job = */ joblist.addJob(kForeground);
 
   STSHJob& job = joblist.addJob(p.background ? kBackground : kForeground);
-  for(command cmd : p.commands){
-//    cout << "cmd:" << endl << cmd.command  << cmd.tokens << endl;
-    int pid = fork();
-    job.addProcess(STSHProcess(pid, cmd));
+  pid_t groupid = 0;
+  for(size_t i = 0; i < p.commands.size(); i++){
+    pid_t pid = fork();
+    if(i == 0) groupid = pid;
+    job.addProcess(STSHProcess(pid, p.commands[i]));
+    
+    //child process
     if(pid == 0){
-      setpgid(0, 0);
+      setpgid(getpid(), groupid);
       char* argv[kMaxArguments + 2] = {NULL};
-      argv[0] = const_cast<char*>(cmd.command);
-      for(size_t i = 0; i < kMaxArguments + 1 && cmd.tokens[i] != NULL; i++)
-	argv[i + 1] = cmd.tokens[i];
+      argv[0] = const_cast<char*>(p.commands[i].command);
+      for(size_t j = 0; j < kMaxArguments + 1 && p.commands[i].tokens[j] != NULL; j++) argv[j + 1] = p.commands[i].tokens[j];
       int err = execvp(argv[0], argv);
-      if(err < 0) throw STSHException("Command not found");
-      
+      if(err < 0) throw STSHException("Command not found");      
     }
   }
    sigset_t additions, existingmask;
@@ -115,11 +120,11 @@ static void createJob(const pipeline& p) {
    sigaddset(&additions, SIGINT);
    sigaddset(&additions, SIGTSTP);
    sigaddset(&additions, SIGCONT);
-  	 sigprocmask(SIG_BLOCK, &additions, &existingmask);
+   sigprocmask(SIG_BLOCK, &additions, &existingmask);
  	 while(joblist.hasForegroundJob() && joblist.getForegroundJob().getNum() == job.getNum())
-         sigsuspend(&existingmask);
+     sigsuspend(&existingmask);
         
-        sigprocmask(SIG_UNBLOCK, &additions, &existingmask);
+    sigprocmask(SIG_UNBLOCK, &additions, &existingmask);
    
 
   
