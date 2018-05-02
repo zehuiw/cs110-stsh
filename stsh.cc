@@ -25,6 +25,7 @@ using namespace std;
 static STSHJobList joblist; // the one piece of global data we need so signal handlers can access it
 static void changeProcessStatus(pid_t pid, STSHJobState stat);
 static void sigchildHandler(int sig);
+static void intHandler(int sig);
 /**
  * Function: handleBuiltin
  * -----------------------
@@ -58,11 +59,14 @@ static bool handleBuiltin(const pipeline& pipeline) {
  * SIGINT, and SIGTSTP, you'll add more installSignalHandler calls) and 
  * ignores two others.
  */
+static void stopHandler(){
+  
 static void installSignalHandlers() {
   installSignalHandler(SIGQUIT, [](int sig) { exit(0); });
   installSignalHandler(SIGTTIN, SIG_IGN);
   installSignalHandler(SIGTTOU, SIG_IGN);
   installSignalHandler(SIGCHLD, sigchildHandler);
+  installSignalHandler(SIGINT, intHandler);
 }
 
 static void changeProcessStatus(pid_t pid, STSHProcessState stat){
@@ -71,6 +75,14 @@ static void changeProcessStatus(pid_t pid, STSHProcessState stat){
   STSHProcess& proc = job.getProcess(pid);
   proc.setState(stat);
   joblist.synchronize(job);
+}
+static void intHandler(int sig){
+  if(joblist.hasForegroundJob()){
+    STSHJob& job = joblist.getForegroundJob();
+    vector<STSHProcess>& processes = job.getProcesses();
+    for(STSHProcess proc : processes)
+      kill(proc.getID(), sig);
+  }
 }
 
 static void sigchildHandler(int sig){
@@ -84,10 +96,6 @@ static void sigchildHandler(int sig){
   }
 }
   
-      
-
-
-
 /**
  * Function: createJob
  * -------------------
@@ -114,6 +122,7 @@ static void createJob(const pipeline& p) {
       if(err < 0) throw STSHException("Command not found");      
     }
   }
+  if(!p.background){
    sigset_t additions, existingmask;
    sigemptyset(&additions);
    sigaddset(&additions, SIGCHLD);
@@ -126,9 +135,14 @@ static void createJob(const pipeline& p) {
      sigsuspend(&existingmask);
         
     sigprocmask(SIG_UNBLOCK, &additions, &existingmask);
-   
-
-  
+  } 
+  else{ // background job
+    cout << "[" << job.getNum() << "] ";
+    vector<STSHProcess>& processes = job.getProcesses();
+    for(size_t i = 0; i < processes.size(); i++)
+      cout << processes[i].getID() << " ";
+    cout << endl;
+  }
 }
 
 /**
