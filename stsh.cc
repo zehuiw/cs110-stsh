@@ -19,6 +19,7 @@
 #include <unistd.h>  // for fork
 #include <signal.h>  // for kill
 #include <sys/wait.h>
+#include <assert.h>
 using namespace std;
 
 static STSHJobList joblist; // the one piece of global data we need so signal handlers can access it
@@ -64,7 +65,7 @@ static void installSignalHandlers() {
   installSignalHandler(SIGCHLD, sigchildHandler);
 }
 
-static void changeProcessStatus(pid_t pid, STSHJobState stat){
+static void changeProcessStatus(pid_t pid, STSHProcessState stat){
   STSHJob &job = joblist.getJobWithProcess(pid);
   assert(job.containsProcess(pid));
   STSHProcess& proc = job.getProcess(pid);
