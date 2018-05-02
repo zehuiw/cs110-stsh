@@ -24,7 +24,7 @@ using namespace std;
 
 static STSHJobList joblist; // the one piece of global data we need so signal handlers can access it
 static void changeProcessStatus(pid_t pid, STSHJobState stat);
-static void sigchildHandler(int sig);
+static void sigIntStopHandler(int sig);
 static void intHandler(int sig);
 /**
  * Function: handleBuiltin
@@ -35,6 +35,7 @@ static void intHandler(int sig);
  */
 static const string kSupportedBuiltins[] = {"quit", "exit", "fg", "bg", "slay", "halt", "cont", "jobs"};
 static const size_t kNumSupportedBuiltins = sizeof(kSupportedBuiltins)/sizeof(kSupportedBuiltins[0]);
+
 static bool handleBuiltin(const pipeline& pipeline) {
   const string& command = pipeline.commands[0].command;
   auto iter = find(kSupportedBuiltins, kSupportedBuiltins + kNumSupportedBuiltins, command);
@@ -44,11 +45,45 @@ static bool handleBuiltin(const pipeline& pipeline) {
   switch (index) {
   case 0:
   case 1: exit(0);
+  case 2: 
   case 7: cout << joblist; break;
   default: throw STSHException("Internal Error: Builtin command not supported."); // or not implemented yet
   }
   
   return true;
+}
+
+static void builtinFg(const pipeline& pipeline){
+  char* arg = pipeline.commands[0].tokens[0];
+  if(arg == NULL) throw STSHException("Usage: fg <jobid>.");
+  if(strcmp(arg, "0") == 0) throw STSHException("fg 0: No such job.");
+  int jobid = atoi(arg);
+  if(jobid == 0) throw STSHException("Usage: fg <jobid>.");
+  if(!joblist.containsJob(jobid)) throw STSHException("fg " + to_string(jobid) + ": No such job.");
+
+  sigset_t additions, existingmask;
+  sigemptyset(&additions);
+  sigaddset(&additions, SIGINT);
+  sigaddset(&additions, SIGTSTP);
+  sigaddset(&additions, SIGCONT);
+  sigaddset(&additions, SIGCHLD);
+  sigprocmask(SIG_BLOCK, &additions, &existingmask);
+  STSHJob& job = joblist.getJob(jobid);
+  std::vector<STSHProcess>& processes = job.getProcesses();
+
+  
+  if(job.getState() == kForeground){ //foreground: continue
+    for(STSHProcess proc : processes)
+      kill(process.getID(), SIGCONT);
+  } else{//background: bring to foreground
+    if(processes.size() > 0){
+      job.setState(kForeground);
+      gid = processes[0].getID();
+      kill(-gid, SIGCONT); 
+    }  
+  }
+  while(joblist.hasForegroundJob()) sigsuspend(&existingmask);
+  sigprocmask(SIG_UNBLOCK, &additions, NULL);
 }
 
 /**
@@ -59,14 +94,13 @@ static bool handleBuiltin(const pipeline& pipeline) {
  * SIGINT, and SIGTSTP, you'll add more installSignalHandler calls) and 
  * ignores two others.
  */
-static void stopHandler(){
-  
+
 static void installSignalHandlers() {
   installSignalHandler(SIGQUIT, [](int sig) { exit(0); });
   installSignalHandler(SIGTTIN, SIG_IGN);
   installSignalHandler(SIGTTOU, SIG_IGN);
-  installSignalHandler(SIGCHLD, sigchildHandler);
-  installSignalHandler(SIGINT, intHandler);
+  installSignalHandler(SIGCHLD, sigIntStopHandler);
+  installSignalHandler(SIGINT, sigIntStopHandler);
 }
 
 static void changeProcessStatus(pid_t pid, STSHProcessState stat){
@@ -76,7 +110,7 @@ static void changeProcessStatus(pid_t pid, STSHProcessState stat){
   proc.setState(stat);
   joblist.synchronize(job);
 }
-static void intHandler(int sig){
+static void sigIntStopHandler(int sig){
   if(joblist.hasForegroundJob()){
     STSHJob& job = joblist.getForegroundJob();
     vector<STSHProcess>& processes = job.getProcesses();
