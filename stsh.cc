@@ -60,7 +60,28 @@ static void installSignalHandlers() {
   installSignalHandler(SIGQUIT, [](int sig) { exit(0); });
   installSignalHandler(SIGTTIN, SIG_IGN);
   installSignalHandler(SIGTTOU, SIG_IGN);
+//  signal(SIGCHLD, reapForegroundProcess);
 }
+
+static void reapForegroundProcess(int sig){
+ if(joblist.hasForegroundJob()){
+    STSHJob fjob = joblist.getForegroundJob();
+    std::vector<STSHProcess> &processes = fjob.getProcesses();
+    for(size_t i = 0; i < processes.size(); i++){
+      STSHProcess &process = processes[i];
+      int status;
+      int pid = waitpid(-1, &status, WNOHANG);
+      if(pid < 0) continue;
+      if(WIFEXITED(status)) process.setState(kTerminated);
+      else if(WIFSTOPPED(status)) process.setState(kStopped);
+    }
+    joblist.synchronize(fjob);
+  }
+}
+  
+      
+
+
 
 /**
  * Function: createJob
@@ -68,8 +89,40 @@ static void installSignalHandlers() {
  * Creates a new job on behalf of the provided pipeline.
  */
 static void createJob(const pipeline& p) {
-  cout << p; // remove this line once you get started
-  /* STSHJob& job = */ joblist.addJob(kForeground);
+//  cout << p; // remove this line once you get started
+//  /* STSHJob& job = */ joblist.addJob(kForeground);
+
+  STSHJob& job = joblist.addJob(p.background ? kBackground : kForeground);
+  for(command cmd : p.commands){
+//    cout << "cmd:" << endl << cmd.command  << cmd.tokens << endl;
+    int pid = fork();
+    job.addProcess(STSHProcess(pid, cmd));
+    if(pid == 0){
+      setpgid(0, 0);
+      char* argv[kMaxArguments + 2] = {NULL};
+      argv[0] = const_cast<char*>(cmd.command);
+      for(size_t i = 0; i < kMaxArguments + 1 && cmd.tokens[i] != NULL; i++)
+	argv[i + 1] = cmd.tokens[i];
+      int err = execvp(argv[0], argv);
+      if(err < 0) throw STSHException("Command not found");
+      
+    }
+  }
+   sigset_t additions, existingmask;
+   sigemptyset(&additions);
+   sigaddset(&additions, SIGCHLD);
+   sigaddset(&additions, SIGCHLD);
+   sigaddset(&additions, SIGINT);
+   sigaddset(&additions, SIGTSTP);
+   sigaddset(&additions, SIGCONT);
+  	 sigprocmask(SIG_BLOCK, &additions, &existingmask);
+ 	 while(joblist.hasForegroundJob() && joblist.getForegroundJob().getNum() == job.getNum())
+         sigsuspend(&existingmask);
+        
+        sigprocmask(SIG_UNBLOCK, &additions, &existingmask);
+   
+
+  
 }
 
 /**
