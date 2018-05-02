@@ -25,7 +25,8 @@ using namespace std;
 static STSHJobList joblist; // the one piece of global data we need so signal handlers can access it
 static void changeProcessStatus(pid_t pid, STSHJobState stat);
 static void sigIntStopHandler(int sig);
-static void intHandler(int sig);
+static void sigchildHandler(int sig);
+static void builtinFg(const pipeline& pipeline);
 /**
  * Function: handleBuiltin
  * -----------------------
@@ -45,7 +46,7 @@ static bool handleBuiltin(const pipeline& pipeline) {
   switch (index) {
   case 0:
   case 1: exit(0);
-  case 2: 
+  case 2: builtinFg(pipeline); break; 
   case 7: cout << joblist; break;
   default: throw STSHException("Internal Error: Builtin command not supported."); // or not implemented yet
   }
@@ -59,7 +60,10 @@ static void builtinFg(const pipeline& pipeline){
   if(strcmp(arg, "0") == 0) throw STSHException("fg 0: No such job.");
   int jobid = atoi(arg);
   if(jobid == 0) throw STSHException("Usage: fg <jobid>.");
-  if(!joblist.containsJob(jobid)) throw STSHException("fg " + to_string(jobid) + ": No such job.");
+  if(!joblist.containsJob(jobid)) {
+    cout << "jobid: " << jobid << endl;    
+    throw STSHException("fg " + to_string(jobid) + ": No such job.");
+  }
 
   sigset_t additions, existingmask;
   sigemptyset(&additions);
@@ -74,11 +78,11 @@ static void builtinFg(const pipeline& pipeline){
   
   if(job.getState() == kForeground){ //foreground: continue
     for(STSHProcess proc : processes)
-      kill(process.getID(), SIGCONT);
+      kill(proc.getID(), SIGCONT);
   } else{//background: bring to foreground
     if(processes.size() > 0){
       job.setState(kForeground);
-      gid = processes[0].getID();
+      pid_t gid = processes[0].getID();
       kill(-gid, SIGCONT); 
     }  
   }
@@ -99,8 +103,9 @@ static void installSignalHandlers() {
   installSignalHandler(SIGQUIT, [](int sig) { exit(0); });
   installSignalHandler(SIGTTIN, SIG_IGN);
   installSignalHandler(SIGTTOU, SIG_IGN);
-  installSignalHandler(SIGCHLD, sigIntStopHandler);
+  installSignalHandler(SIGCHLD, sigchildHandler);
   installSignalHandler(SIGINT, sigIntStopHandler);
+  installSignalHandler(SIGTSTP, sigIntStopHandler);
 }
 
 static void changeProcessStatus(pid_t pid, STSHProcessState stat){
