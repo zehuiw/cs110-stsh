@@ -27,6 +27,7 @@ static void changeProcessStatus(pid_t pid, STSHJobState stat);
 static void sigIntStopHandler(int sig);
 static void sigchildHandler(int sig);
 static void builtinFg(const pipeline& pipeline);
+static void transferTerminalControl(pid_t pgid);
 /**
  * Function: handleBuiltin
  * -----------------------
@@ -170,10 +171,14 @@ static void createJob(const pipeline& p) {
    sigaddset(&additions, SIGTSTP);
    sigaddset(&additions, SIGCONT);
    sigprocmask(SIG_BLOCK, &additions, &existingmask);
+
+   if(joblist.hasForegroundJob){
+    transferTerminalControl(groupid)
+   }
+
  	 while(joblist.hasForegroundJob() && joblist.getForegroundJob().getNum() == job.getNum())
-     sigsuspend(&existingmask);
-        
-    sigprocmask(SIG_UNBLOCK, &additions, &existingmask);
+     sigsuspend(&existingmask);        
+  sigprocmask(SIG_UNBLOCK, &additions, &existingmask);
   } 
   else{ // background job
     cout << "[" << job.getNum() << "] ";
@@ -182,6 +187,16 @@ static void createJob(const pipeline& p) {
       cout << processes[i].getID() << " ";
     cout << endl;
   }
+
+  //give shell back to parent
+  transferTerminalControl(getpgid(getpid()));
+}
+
+static void transferTerminalControl(pid_t pgid){
+  int err = tcsetpgrp(STDIN_FILENO, groupid);
+  if(err == -1 && errno != ENOTTY){
+    throw STSHException("tcsetpgrp: A serious problem happens")
+  }  
 }
 
 /**
