@@ -172,8 +172,8 @@ static void createJob(const pipeline& p) {
    sigaddset(&additions, SIGCONT);
    sigprocmask(SIG_BLOCK, &additions, &existingmask);
 
-   if(joblist.hasForegroundJob){
-    transferTerminalControl(groupid)
+   if(joblist.hasForegroundJob()){
+    transferTerminalControl(groupid);
    }
 
  	 while(joblist.hasForegroundJob() && joblist.getForegroundJob().getNum() == job.getNum())
@@ -193,9 +193,9 @@ static void createJob(const pipeline& p) {
 }
 
 static void transferTerminalControl(pid_t pgid){
-  int err = tcsetpgrp(STDIN_FILENO, groupid);
+  int err = tcsetpgrp(STDIN_FILENO, pgid);
   if(err == -1 && errno != ENOTTY){
-    throw STSHException("tcsetpgrp: A serious problem happens")
+    throw STSHException("tcsetpgrp: A serious problem happens");
   }  
 }
 
