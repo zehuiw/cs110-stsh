@@ -68,7 +68,6 @@ static void builtinFg(const pipeline& pipeline){
   int jobid = atoi(arg);
   if(jobid == 0) throw STSHException("Usage: fg <jobid>.");
   if(!joblist.containsJob(jobid)) {
-    cout << "jobid: " << jobid << endl;    
     throw STSHException("fg " + to_string(jobid) + ": No such job.");
   }
 
@@ -228,7 +227,7 @@ static void createJob(const pipeline& p) {
       argv[0] = const_cast<char*>(p.commands[i].command);
       for(size_t j = 0; j < kMaxArguments + 1 && p.commands[i].tokens[j] != NULL; j++) argv[j + 1] = p.commands[i].tokens[j];
       int err = execvp(argv[0], argv);
-      if(err < 0) throw STSHException("./" + std::string(argv[0]) + ": Command not found");      
+      if(err < 0) throw STSHException(std::string(argv[0]) + ": Command not found");      
     }
   }
   for(size_t t = 0; t < p.commands.size() - 1; t++){
