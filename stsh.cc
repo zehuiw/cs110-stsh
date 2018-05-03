@@ -28,6 +28,7 @@ static void sigIntStopHandler(int sig);
 static void sigchildHandler(int sig);
 static void builtinFg(const pipeline& pipeline);
 static void builtinSignals(const pipeline& pipeline, const string cmdName, int sig);
+static void builtinBg(const pipeline& pipeline);
 static void transferTerminalControl(pid_t pgid);
 /**
  * Function: handleBuiltin
@@ -112,11 +113,11 @@ static void builtinBg(const pipeline& pipeline){
     kill(proc.getID(), SIGCONT);
 }
 
-static void builtinSignals(const pipeline& pipeline, const string cmdName, int sig){
+static void builtinSignals(const pipeline& p, const string cmdName, int sig){
   char* arg1 = p.commands[0].tokens[0];
-  if(argv1 == NULL) throw STSHException("Usage: " + cmdName + " <jobid> <index> | <pid>.");
+  if(arg1 == NULL) throw STSHException("Usage: " + cmdName + " <jobid> <index> | <pid>.");
   char* arg2 = p.commands[0].tokens[1];
-  int arg1_int = atoi(argv1);
+  int arg1_int = atoi(arg1);
   if(arg2 == NULL){
     if(!joblist.containsProcess(arg1_int)) throw STSHException("No process with pid " + to_string(arg1_int));
     kill(arg1_int, sig);
