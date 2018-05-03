@@ -189,13 +189,36 @@ static void createJob(const pipeline& p) {
 
   STSHJob& job = joblist.addJob(p.background ? kBackground : kForeground);
   pid_t groupid = 0;
+  int fds[p.commands.size() - 1][2];
+  for(size_t i = 0; i < p.commands.size() - 1; i++) pipe(fds[i]);
+  int inputfd = -1, outputfd = -1;
+  if(!p.input.empty()) inputfd = open(p.input.c_str(), O_RDONLY);
+  if(!p.output.empty()) outputfd = open(p.output.c_str(), O_CREAT | O_TRUNC, 0644);
+
   for(size_t i = 0; i < p.commands.size(); i++){
     pid_t pid = fork();
     if(i == 0) groupid = pid;
     job.addProcess(STSHProcess(pid, p.commands[i]));
-    
     //child process
     if(pid == 0){
+      if(i == 0 && inputfd >= 0){
+          dup2(inputfd, STDIN_FILENO);
+          close(inputfd);
+      }else if(i > 0){
+        dup2(fds[i - 1][0], STDIN_FILENO);
+        close(fds[i - 1][0]);
+      }
+      if(i == p.commands.size() - 1 && outputfd >= 0){
+        dup2(outputfd, STDOUT_FILENO);
+        close(outputfd);
+      }else if(i != p.commands.size() - 1){
+        dup2(fds[i][1], STDOUT_FILENO);
+        close(fds[i][1]);
+      }
+
+      for(int t = 0; t < t.commands.size() - 1; t++){
+        close(fds[i][0]); close(fds[i][1]);
+      }
       setpgid(getpid(), groupid);
       char* argv[kMaxArguments + 2] = {NULL};
       argv[0] = const_cast<char*>(p.commands[i].command);
@@ -204,6 +227,8 @@ static void createJob(const pipeline& p) {
       if(err < 0) throw STSHException("./" + std::string(argv[0]) + ": command not found");      
     }
   }
+  for(int t = 0; t < t.commands.size() - 1; t++)
+        close(fds[i][0]); close(fds[i][1]);
   if(!p.background){
    sigset_t additions, existingmask;
    sigemptyset(&additions);
