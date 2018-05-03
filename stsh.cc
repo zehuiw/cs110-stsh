@@ -100,12 +100,11 @@ static void builtinFg(const pipeline& pipeline){
 static void builtinBg(const pipeline& pipeline){
   char* arg = pipeline.commands[0].tokens[0];
   if(arg == NULL) throw STSHException("Usage: bg <jobid>.");
-  if(strcmp(arg, "0") == 0) throw STSHException("fg 0: No such job.");
+  if(strcmp(arg, "0") == 0) throw STSHException("bg 0: No such job.");
   int jobid = atoi(arg);
-  if(jobid == 0) throw STSHException("Usage: fg <jobid>.");
+  if(jobid == 0) throw STSHException("Usage: bg <jobid>.");
   if(!joblist.containsJob(jobid)) {
-    cout << "jobid: " << jobid << endl;    
-    throw STSHException("fg " + to_string(jobid) + ": No such job.");
+    throw STSHException("bg " + to_string(jobid) + ": No such job.");
   }
   STSHJob &job = joblist.getJob(jobid);
   std::vector<STSHProcess> &processes = job.getProcesses();
@@ -193,7 +192,12 @@ static void createJob(const pipeline& p) {
   for(size_t i = 0; i < p.commands.size() - 1; i++) pipe(fds[i]);
   int inputfd = -1, outputfd = -1;
   if(!p.input.empty()) inputfd = open(p.input.c_str(), O_RDONLY);
-  if(!p.output.empty()) outputfd = open(p.output.c_str(), O_CREAT | O_TRUNC, 0644);
+  if(!p.output.empty()) {
+    outputfd = open(p.output.c_str(), O_WRONLY | O_TRUNC);
+    if(outputfd == -1 && errno == ENOENT){
+      outputfd = open(p.output.c_str(), O_WRONLY | O_CREAT, 0644);
+    }
+  }
 
   for(size_t i = 0; i < p.commands.size(); i++){
     pid_t pid = fork();
@@ -224,7 +228,7 @@ static void createJob(const pipeline& p) {
       argv[0] = const_cast<char*>(p.commands[i].command);
       for(size_t j = 0; j < kMaxArguments + 1 && p.commands[i].tokens[j] != NULL; j++) argv[j + 1] = p.commands[i].tokens[j];
       int err = execvp(argv[0], argv);
-      if(err < 0) throw STSHException("./" + std::string(argv[0]) + ": command not found");      
+      if(err < 0) throw STSHException("./" + std::string(argv[0]) + ": Command not found");      
     }
   }
   for(size_t t = 0; t < p.commands.size() - 1; t++){
