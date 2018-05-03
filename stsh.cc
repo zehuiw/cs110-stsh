@@ -216,8 +216,8 @@ static void createJob(const pipeline& p) {
         close(fds[i][1]);
       }
 
-      for(int t = 0; t < t.commands.size() - 1; t++){
-        close(fds[i][0]); close(fds[i][1]);
+      for(int t = 0; t < p.commands.size() - 1; t++){
+        close(fds[t][0]); close(fds[t][1]);
       }
       setpgid(getpid(), groupid);
       char* argv[kMaxArguments + 2] = {NULL};
@@ -227,8 +227,9 @@ static void createJob(const pipeline& p) {
       if(err < 0) throw STSHException("./" + std::string(argv[0]) + ": command not found");      
     }
   }
-  for(int t = 0; t < t.commands.size() - 1; t++)
-        close(fds[i][0]); close(fds[i][1]);
+  for(size_t t = 0; t < p.commands.size() - 1; t++){
+        close(fds[t][0]); close(fds[t][1]);
+  }
   if(!p.background){
    sigset_t additions, existingmask;
    sigemptyset(&additions);
