@@ -27,6 +27,7 @@ static void changeProcessStatus(pid_t pid, STSHJobState stat);
 static void sigIntStopHandler(int sig);
 static void sigchildHandler(int sig);
 static void builtinFg(const pipeline& pipeline);
+static void builtinSignals(const pipeline& pipeline, const string cmdName, int sig);
 static void transferTerminalControl(pid_t pgid);
 /**
  * Function: handleBuiltin
@@ -48,6 +49,10 @@ static bool handleBuiltin(const pipeline& pipeline) {
   case 0:
   case 1: exit(0);
   case 2: builtinFg(pipeline); break; 
+  case 3: builtinBg(pipeline); break;
+  case 4: builtinSignals(pipeline, "slay", SIGINT); break;
+  case 5: builtinSignals(pipeline, "halt", SIGTSTP); break;
+  case 6: builtinSignals(pipeline, "cont", SIGCONT); break;
   case 7: cout << joblist; break;
   default: throw STSHException("Internal Error: Builtin command not supported."); // or not implemented yet
   }
@@ -74,7 +79,7 @@ static void builtinFg(const pipeline& pipeline){
   sigaddset(&additions, SIGCHLD);
   sigprocmask(SIG_BLOCK, &additions, &existingmask);
   STSHJob& job = joblist.getJob(jobid);
-  std::vector<STSHProcess>& processes = job.getProcesses();
+  std::vector<STSHProcess> &processes = job.getProcesses();
 
   
   if(job.getState() == kForeground){ //foreground: continue
@@ -89,6 +94,42 @@ static void builtinFg(const pipeline& pipeline){
   }
   while(joblist.hasForegroundJob()) sigsuspend(&existingmask);
   sigprocmask(SIG_UNBLOCK, &additions, NULL);
+}
+
+static void builtinBg(const pipeline& pipeline){
+  char* arg = pipeline.commands[0].tokens[0];
+  if(arg == NULL) throw STSHException("Usage: bg <jobid>.");
+  if(strcmp(arg, "0") == 0) throw STSHException("fg 0: No such job.");
+  int jobid = atoi(arg);
+  if(jobid == 0) throw STSHException("Usage: fg <jobid>.");
+  if(!joblist.containsJob(jobid)) {
+    cout << "jobid: " << jobid << endl;    
+    throw STSHException("fg " + to_string(jobid) + ": No such job.");
+  }
+  STSHJob &job = joblist.getJob(jobid);
+  std::vector<STSHProcess> &processes = job.getProcesses();
+  for(STSHProcess proc : processes)
+    kill(proc.getID(), SIGCONT);
+}
+
+static void builtinSignals(const pipeline& pipeline, const string cmdName, int sig){
+  char* arg1 = p.commands[0].tokens[0];
+  if(argv1 == NULL) throw STSHException("Usage: " + cmdName + " <jobid> <index> | <pid>.");
+  char* arg2 = p.commands[0].tokens[1];
+  int arg1_int = atoi(argv1);
+  if(arg2 == NULL){
+    if(!joblist.containsProcess(arg1_int)) throw STSHException("No process with pid " + to_string(arg1_int));
+    kill(arg1_int, sig);
+  } else{
+    int arg2_int = atoi(arg2);
+    if(!joblist.containsJob(arg1_int)) throw STSHException("No job with id " + to_string(arg1_int));
+    STSHJob& job = joblist.getJob(arg1_int);
+    vector<STSHProcess>& processes = job.getProcesses();
+    if(arg2_int >= processes.size()) throw STSHException("Job " + to_string(arg1_int) + "doesn't have a pid at index " + to_string(arg2_int));
+    STSHProcess proc = processes[arg2_int];
+    if(!job.containsProcess(proc.getID())) throw STSHException("Job " + to_string(arg1_int) + "doesn't have a pid at index " + to_string(arg2_int));
+    kill(proc.getID(), sig);
+  }
 }
 
 /**
